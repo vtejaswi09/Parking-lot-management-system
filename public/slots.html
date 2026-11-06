@@ -1,0 +1,41 @@
+<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Parking Slots</title><link rel="stylesheet" href="style.css"></head><body>
+<header><h1>PARKING LOT MANAGEMENT SYSTEM</h1><div>PARKING SLOTS</div></header>
+<nav><a href="index.html">Home</a><a href="users.html">Users</a><a href="slots.html">Parking Slots</a><a href="vehicles.html">Vehicles</a><a href="records.html">Parking Records</a></nav>
+<main><section class="panel"><h2>Add / Update Parking Slots</h2>
+<form id="entryForm"><div class="grid"><div><label for="slot_number">Slot Number</label><input id="slot_number" type="text" required></div><div><label for="vehicle_type">Vehicle Type</label><select id="vehicle_type"><option value="">Select Vehicle Type</option><option>Two Wheeler</option><option>Four Wheeler</option></select></div><div><label for="location">Location</label><input id="location" type="text" required></div><div><label for="status">Status</label><select id="status"><option value="">Select Status</option><option>Available</option><option>Occupied</option></select></div></div>
+<button type="submit">Save Record</button><button type="button" class="secondary" onclick="resetForm()">Clear</button>
+<p class="hint">To update a row, click its Edit button in the table, change the values and save.</p></form></section>
+<section class="panel"><h2>List of Parking Slots</h2><button onclick="loadRows()">Refresh List</button><div class="table-wrap"><table id="dataTable"><thead><tr><th>slot_id</th><th>Slot Number</th><th>Vehicle Type</th><th>Location</th><th>Status</th><th>Actions</th></tr></thead><tbody></tbody></table></div></section></main>
+<script>
+const type="slots", idColumn="slot_id", fields=["slot_number","vehicle_type","location","status"];
+let editingId=null, lookups={users:[],vehicles:[],slots:[]};
+async function loadLookups(){
+ try{const r=await fetch('/api/lookups');if(r.ok)lookups=await r.json();}catch(e){}
+ document.querySelectorAll('select').forEach(sel=>{
+  if(sel.id==='user_id'||sel.id==='vehicle_id'||sel.id==='slot_id'){
+   const key=sel.id==='user_id'?'users':sel.id==='vehicle_id'?'vehicles':'slots';
+   const old=sel.innerHTML;sel.innerHTML=old.split('</option>')[0]+'</option>';
+   lookups[key].forEach(x=>{const o=document.createElement('option');o.value=x[sel.id];o.textContent=key==='users'?`${x.user_id} - ${x.name}`:key==='vehicles'?`${x.vehicle_id} - ${x.vehicle_number} (${x.vehicle_type})`:`${x.slot_id} - ${x.slot_number} (${x.status})`;sel.appendChild(o);});
+  }
+ });
+}
+function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+async function loadRows(){
+ const r=await fetch('/api/'+type);const data=await r.json();const body=document.querySelector('#dataTable tbody');body.innerHTML='';
+ data.forEach(row=>{const tr=document.createElement('tr');let cells=`<td>${esc(row[idColumn])}</td>`+fields.map(f=>`<td>${esc(row[f])}</td>`).join('')+`<td><button type="button" onclick="editRow(${row[idColumn]})">Edit</button><button type="button" class="danger" onclick="deleteRow(${row[idColumn]})">Delete</button></td>`;tr.innerHTML=cells;body.appendChild(tr);});
+}
+async function editRow(id){const r=await fetch('/api/'+type);const rows=await r.json();const row=rows.find(x=>String(x[idColumn])===String(id));if(!row)return;editingId=id;fields.forEach(f=>{let v=row[f]??'';if(f.endsWith('_time')&&v){const d=new Date(v);v=new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16);}document.getElementById(f).value=v;});window.scrollTo({top:0,behavior:'smooth'});}
+async function deleteRow(id){if(!confirm('Delete this record?'))return;const r=await fetch('/api/'+type+'/'+id,{method:'DELETE'});const msg=await r.text();alert(msg);loadRows();loadLookups();}
+function resetForm(){editingId=null;document.getElementById('entryForm').reset();}
+document.getElementById('entryForm').addEventListener('submit',async e=>{
+ e.preventDefault();const data={};fields.forEach(f=>{data[f]=document.getElementById(f).value;}); 
+ if(type==='records'&&data.entry_time)data.entry_time=data.entry_time.replace('T',' ')+':00';
+ if(type==='records'&&data.exit_time)data.exit_time=data.exit_time.replace('T',' ')+':00';
+ if(type==='records'&&!data.exit_time)data.exit_time=null;
+ if(type==='records'&&!data.parking_fee)data.parking_fee=0;
+ const url='/api/'+type+(editingId?'/'+editingId:'');
+ const r=await fetch(url,{method:editingId?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+ const msg=await r.text();alert(msg);if(r.ok){resetForm();loadRows();loadLookups();}
+});
+loadLookups().then(loadRows);
+</script></body></html>

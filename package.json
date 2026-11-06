@@ -1,0 +1,8 @@
+{
+  "name": "parking-lot-management-system",
+  "version": "1.0.0",
+  "description": "Parking Lot Management System using Express and MySQL",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "dependencies": { "express": "^4.21.2", "mysql2": "^3.14.0" }
+}

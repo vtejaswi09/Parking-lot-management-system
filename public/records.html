@@ -1,0 +1,140 @@
+<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Parking Records</title><link rel="stylesheet" href="style.css"></head><body>
+<header><h1>PARKING LOT MANAGEMENT SYSTEM</h1><div>PARKING RECORDS</div></header>
+<nav><a href="index.html">Home</a><a href="users.html">Users</a><a href="slots.html">Parking Slots</a><a href="vehicles.html">Vehicles</a><a href="records.html">Parking Records</a></nav>
+<main><section class="panel"><h2>Add / Update Parking Records</h2>
+<form id="entryForm"><div class="grid"><div><label for="vehicle_id">Vehicle</label><select id="vehicle_id"><option value="">Select Vehicle</option></select></div><div><label for="slot_id">Parking Slot</label><select id="slot_id"><option value="">Select Parking Slot</option></select></div><div><label for="entry_time">Entry Time</label><input id="entry_time" type="datetime-local" required></div><div><label for="exit_time">Exit Time (optional)</label><input id="exit_time" type="datetime-local" ></div><div><label for="parking_fee">Parking Fee</label><input id="parking_fee" type="number" step="0.01" min="0" required></div><div><label for="status">Status</label><select id="status"><option value="">Select Status</option><option>Active</option><option>Completed</option></select></div></div>
+<button type="submit">Save Record</button><button type="button" class="secondary" onclick="resetForm()">Clear</button>
+<p class="hint">To update a row, click its Edit button in the table, change the values and save.</p></form></section>
+<section class="panel"><h2>List of Parking Records</h2><button onclick="loadRows()">Refresh List</button><div class="table-wrap"><table id="dataTable"><thead><tr><th>record_id</th><th>Vehicle</th><th>Parking Slot</th><th>Entry Time</th><th>Exit Time (optional)</th><th>Parking Fee</th><th>Status</th><th>Actions</th></tr></thead><tbody></tbody></table></div></section></main>
+<script>
+const type="records", idColumn="record_id";
+const fields=["vehicle_id","slot_id","entry_time","exit_time","parking_fee","status"];
+let editingId=null, editingSlotId=null;
+let lookups={vehicles:[],slots:[]};
+
+const vehicleSelect=document.getElementById("vehicle_id");
+const slotSelect=document.getElementById("slot_id");
+
+function esc(v){
+ return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+function setPlaceholder(select,label){
+ select.innerHTML="";
+ const option=document.createElement("option");
+ option.value="";
+ option.textContent=label;
+ select.appendChild(option);
+}
+function refreshSlotOptions(){
+ const vehicle=lookups.vehicles.find(v=>String(v.vehicle_id)===String(vehicleSelect.value));
+ const current=slotSelect.value;
+ setPlaceholder(slotSelect,vehicle?"Select an available compatible slot":"Select a vehicle first");
+ if(!vehicle) return;
+ const compatible=lookups.slots.filter(slot=>
+   slot.vehicle_type===vehicle.vehicle_type &&
+   (slot.status==="Available" || String(slot.slot_id)===String(editingSlotId))
+ );
+ compatible.forEach(slot=>{
+   const option=document.createElement("option");
+   option.value=slot.slot_id;
+   option.textContent=`${slot.slot_number} — ${slot.location} (${slot.status})`;
+   slotSelect.appendChild(option);
+ });
+ if(compatible.some(slot=>String(slot.slot_id)===String(current))) slotSelect.value=current;
+ else if(editingSlotId && compatible.some(slot=>String(slot.slot_id)===String(editingSlotId))) slotSelect.value=String(editingSlotId);
+}
+async function loadLookups(){
+ try{
+   const response=await fetch("/api/lookups");
+   if(!response.ok) throw new Error(await response.text());
+   lookups=await response.json();
+   setPlaceholder(vehicleSelect,lookups.vehicles.length?"Select Vehicle":"No vehicles found — add a vehicle first");
+   lookups.vehicles.forEach(vehicle=>{
+     const option=document.createElement("option");
+     option.value=vehicle.vehicle_id;
+     option.textContent=`${vehicle.vehicle_number} — ${vehicle.vehicle_model||vehicle.vehicle_type}`;
+     vehicleSelect.appendChild(option);
+   });
+   refreshSlotOptions();
+ }catch(error){
+   console.error("Could not load dropdown values:",error);
+   setPlaceholder(vehicleSelect,"Could not load vehicles — check server/database");
+   setPlaceholder(slotSelect,"Could not load parking slots — check server/database");
+   const hint=document.querySelector(".hint");
+   if(hint) hint.textContent="Dropdown loading failed: "+error.message;
+ }
+}
+vehicleSelect.addEventListener("change",()=>{editingSlotId=null;refreshSlotOptions();});
+
+async function loadRows(){
+ const response=await fetch("/api/records");
+ if(!response.ok){alert("Could not load parking records.");return;}
+ const data=await response.json();
+ const body=document.querySelector("#dataTable tbody");
+ body.innerHTML="";
+ data.forEach(row=>{
+   const tr=document.createElement("tr");
+   tr.innerHTML=`<td>${esc(row.record_id)}</td><td>${esc(row.vehicle_id)}</td><td>${esc(row.slot_id)}</td><td>${esc(row.entry_time)}</td><td>${esc(row.exit_time)}</td><td>${esc(row.parking_fee)}</td><td>${esc(row.status)}</td><td><button type="button" onclick="editRow(${Number(row.record_id)})">Edit</button><button type="button" class="danger" onclick="deleteRow(${Number(row.record_id)})">Delete</button></td>`;
+   body.appendChild(tr);
+ });
+}
+async function editRow(id){
+ const response=await fetch("/api/records");
+ if(!response.ok)return;
+ const rows=await response.json();
+ const row=rows.find(item=>String(item.record_id)===String(id));
+ if(!row)return;
+ editingId=id;
+ editingSlotId=row.slot_id;
+ vehicleSelect.value=String(row.vehicle_id);
+ refreshSlotOptions();
+ slotSelect.value=String(row.slot_id);
+ fields.slice(2).forEach(field=>{
+   let value=row[field]??"";
+   if(field.endsWith("_time")&&value){
+     const date=new Date(value);
+     value=new Date(date.getTime()-date.getTimezoneOffset()*60000).toISOString().slice(0,16);
+   }
+   document.getElementById(field).value=value;
+ });
+ window.scrollTo({top:0,behavior:"smooth"});
+}
+async function deleteRow(id){
+ if(!confirm("Delete this record?"))return;
+ const response=await fetch("/api/records/"+id,{method:"DELETE"});
+ alert(await response.text());
+ if(response.ok){await loadRows();await loadLookups();}
+}
+function resetForm(){
+ editingId=null;
+ editingSlotId=null;
+ document.getElementById("entryForm").reset();
+ refreshSlotOptions();
+}
+document.getElementById("entryForm").addEventListener("submit",async event=>{
+ event.preventDefault();
+ if(!vehicleSelect.value||!slotSelect.value){alert("Please select a vehicle and a compatible available parking slot.");return;}
+ const chosenVehicle=lookups.vehicles.find(v=>String(v.vehicle_id)===String(vehicleSelect.value));
+ const chosenSlot=lookups.slots.find(s=>String(s.slot_id)===String(slotSelect.value));
+ if(!chosenVehicle||!chosenSlot||chosenVehicle.vehicle_type!==chosenSlot.vehicle_type){
+   alert("The selected parking slot does not match the vehicle type.");return;
+ }
+ if(chosenSlot.status!=="Available"&&String(chosenSlot.slot_id)!==String(editingSlotId)){
+   alert("This parking slot is not available. Please choose another slot.");return;
+ }
+ const data={};
+ fields.forEach(field=>data[field]=document.getElementById(field).value);
+ data.entry_time=data.entry_time.replace("T"," ")+":00";
+ data.exit_time=data.exit_time?data.exit_time.replace("T"," ")+":00":null;
+ if(!data.parking_fee)data.parking_fee=0;
+ const url="/api/records"+(editingId?"/"+editingId:"");
+ const response=await fetch(url,{
+   method:editingId?"PUT":"POST",
+   headers:{"Content-Type":"application/json"},
+   body:JSON.stringify(data)
+ });
+ alert(await response.text());
+ if(response.ok){resetForm();await loadRows();await loadLookups();}
+});
+loadLookups().then(loadRows);
+</script></body></html>
